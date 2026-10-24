@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tools Portal</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: #fff; text-align: center; padding-top: 50px; }
+        .menu { display: flex; flex-direction: column; gap: 15px; max-width: 300px; margin: 0 auto; }
+        .warning-separator {
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #ff4444, transparent);
+            margin: 8px 0;
+        }
+        a { padding: 15px; background: #222; color: #00ffcc; text-decoration: none; border-radius: 8px; border: 1px solid #333; font-weight: bold; }
+        a.thiscord { color: #7289da; }
+        a.warning { background: #3a1d1d; color: #ff8a80; border-color: #ff4444; }
+        a:hover { background: #333; }
+        a.thiscord:hover { background: #333; color: #7289da; }
+        a.warning:hover { background: #4a2424; }
+
+        /* Password gate */
+        #gate { max-width: 300px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+        #gate input { padding: 14px; font-size: 16px; border-radius: 8px; border: 1px solid #333; background: #222; color: #fff; }
+        #gate button { padding: 14px; font-size: 16px; font-weight: bold; border-radius: 8px; border: 1px solid #333; background: #222; color: #00ffcc; cursor: pointer; }
+        #gate button:hover { background: #333; }
+        #error { color: #ff8a80; min-height: 1.2em; margin: 0; }
+    </style>
+</head>
+<body>
+    <div id="gate">
+        <h1>Tools</h1>
+        <p>Enter the password to continue:</p>
+        <input type="password" id="pw" placeholder="Password" autocomplete="current-password" autofocus>
+        <button id="go">Unlock</button>
+        <p id="error"></p>
+    </div>
+    <div id="content"></div>
+
+    <script>
+        // Menu is encrypted with AES-256-GCM; key derived from the password via PBKDF2-SHA256.
+        // Layout of the blob: salt(16) | iv(12) | ciphertext + auth tag
+        const ITERATIONS = 600000;
+        const BLOB = 'd7sx1Zz4zurBougqqeCYbHBJpEEtJRnCgTtD8E33Ht/jw7qzIMB5EAtYjvUQjfCZdP1AFD2m8DGrz5rXWHBX/tHqvpBpeRTxELt6uQEiyrtnB+jYmKI4uxm2hFEF4vyh2Dbur2lQAm0nWXGb3AVmI8giv1wNbcW9btY6wWXC//ptpkbtwIYsKyBd0lqqVP4ajVtiQjb5+OLZltXwKjy8DGe2v1GhTywODXpeWwh7cQUz8K+DA08fIuK3/ENufqBqWBcJoZY9DkwWpVmUEouE4Fh+8wNF1mMqGahqHVAI2CBNSfPVfEvsjL/N70clzIoeOmXwzGZAJJ6bz3FXdr+30mCbIbRA7gaLhjWDxBY/cHO6KQ2rB5hRPpOUXQsZOLswSqztbyL1C2IRz72+u8lHfNJ5pAlslzvIqi9HgI0Mg2uBpK/3QkQbjmY7IJBpjfWREyJTbQ443Z1Nf/+Ou+uN71rU3vxJ3rex5HdAJ/wtcGModeyj6m1FLL5IFgixWcYwlY1s3qVCdw8a4Kih4+Dx2Z2p8ceX';
+
+        function b64ToBytes(b64) {
+            return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        }
+
+        async function decrypt(password) {
+            const data = b64ToBytes(BLOB);
+            const salt = data.slice(0, 16);
+            const iv = data.slice(16, 28);
+            const ct = data.slice(28);
+            const baseKey = await crypto.subtle.importKey(
+                'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+            const key = await crypto.subtle.deriveKey(
+                { name: 'PBKDF2', salt, iterations: ITERATIONS, hash: 'SHA-256' },
+                baseKey, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+            const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+            return new TextDecoder().decode(plain);
+        }
+
+        async function tryUnlock(password) {
+            try {
+                const html = await decrypt(password);
+                document.getElementById('content').innerHTML = html;
+                document.getElementById('gate').style.display = 'none';
+                try { sessionStorage.setItem('portal_pw', password); } catch (e) {}
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        async function attempt() {
+            const input = document.getElementById('pw');
+            const btn = document.getElementById('go');
+            btn.disabled = true;
+            document.getElementById('error').textContent = '';
+            const ok = await tryUnlock(input.value);
+            btn.disabled = false;
+            if (!ok) {
+                document.getElementById('error').textContent = 'Wrong password';
+                input.value = '';
+                input.focus();
+            }
+        }
+
+        document.getElementById('go').addEventListener('click', attempt);
+        document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') attempt(); });
+
+        try {
+            const saved = sessionStorage.getItem('portal_pw');
+            if (saved) tryUnlock(saved);
+        } catch (e) {}
+    </script>
+</body>
+</html>
